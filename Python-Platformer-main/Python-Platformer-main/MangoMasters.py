@@ -122,7 +122,6 @@ class Player(pygame.sprite.Sprite):
         self.jump_count = 0
 
     def hit_head(self):
-        self.count = 0
         self.y_vel *= -1
 
     def update_sprite(self):
@@ -207,19 +206,79 @@ class Fire(Object):
             self.animation_count = 0
 
 
-def get_background(name):
-    image = pygame.image.load(join("assets", "Background", name))
-    _, _, width, height = image.get_rect()
-    tiles = []
+# ------------------------------------------------------
+#              INSERTED LEVEL CLASS (8 METHODS)
+# ------------------------------------------------------
+class Level:
+    def __init__(self, width, height, block_size):
+        self.width = width
+        self.height = height
+        self.block_size = block_size
 
-    for i in range(WIDTH // width + 1):
-        for j in range(HEIGHT // height + 1):
-            pos = (i * width, j * height)
-            tiles.append(pos)
+        self.background, self.bg_image = get_background("Blue.png")
+        self.objects = []
+        self.player_start = (100, 100)
 
-    return tiles, image
+        self.create_level()   # Build the single level
+
+    # 1. Create all objects in the level
+    def create_level(self):
+        self.objects = []
+
+        # Floor
+        floor = [
+            Block(i * self.block_size, self.height - self.block_size, self.block_size)
+            for i in range(-self.width // self.block_size,
+                           (self.width * 2) // self.block_size)
+        ]
+
+        block1 = Block(0, self.height - self.block_size * 2, self.block_size)
+        block2 = Block(self.block_size * 3, self.height - self.block_size * 4, self.block_size)
+
+        fire = Fire(100, self.height - self.block_size - 64, 16, 32)
+        fire.on()
+
+        self.objects = [*floor, block1, block2, fire]
+
+    # 2. Return a new player
+    def create_player(self):
+        return Player(self.player_start[0], self.player_start[1], 50, 50)
+
+    # 3. Return level objects
+    def get_objects(self):
+        return self.objects
+
+    # 4. Draw all level tiles + objects
+    def draw(self, window, offset_x, offset_y):
+        for tile in self.background:
+            window.blit(self.bg_image, (tile[0] - offset_x, tile[1] - offset_y))
+
+        for obj in self.objects:
+            obj.draw(window, offset_x, offset_y)
+
+    # 5. Update animations (like fire)
+    def update(self):
+        for obj in self.objects:
+            if isinstance(obj, Fire):
+                obj.loop()
+
+    # 6. Reset the whole level
+    def reset(self):
+        self.create_level()
+        return self.create_player()
+
+    # 7. Check if level finished
+    def is_complete(self, player):
+        return player.rect.x > self.width
+
+    # 8. Add new object dynamically
+    def add_object(self, obj):
+        self.objects.append(obj)
 
 
+# ------------------------------------------------------
+#                OTHER FUNCTIONS UNCHANGED
+# ------------------------------------------------------
 def draw(window, background, bg_image, player, objects, offset_x, offset_y):
     
     window.fill((0, 0, 0))  
@@ -245,9 +304,7 @@ def handle_vertical_collision(player, objects, dy):
             elif dy < 0:
                 player.rect.top = obj.rect.bottom
                 player.hit_head()
-
             collided_objects.append(obj)
-
     return collided_objects
 
 
@@ -285,26 +342,23 @@ def handle_move(player, objects):
             player.make_hit()
 
 
+# ------------------------------------------------------
+#                      NEW main() USING LEVEL CLASS
+# ------------------------------------------------------
 def main(window):
     clock = pygame.time.Clock()
-    background, bg_image = get_background("Blue.png")
-
     block_size = 96
 
-    player = Player(100, 100, 50, 50)
-    fire = Fire(100, HEIGHT - block_size - 64, 16, 32)
-    fire.on()
-    floor = [Block(i * block_size, HEIGHT - block_size, block_size)
-             for i in range(-WIDTH // block_size, (WIDTH * 2) // block_size)]
-    objects = [*floor, Block(0, HEIGHT - block_size * 2, block_size),
-               Block(block_size * 3, HEIGHT - block_size * 4, block_size), fire]
+    # Load level
+    level = Level(WIDTH, HEIGHT, block_size)
+    player = level.create_player()
+    objects = level.get_objects()
 
     offset_x = 0
-    scroll_area_width = 200
-    
     offset_y = 0
-    scroll_area_height = 200  # similar to scroll_area_width
 
+    scroll_area_width = 200
+    scroll_area_height = 200
 
     run = True
     while run:
@@ -313,23 +367,28 @@ def main(window):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
-                break
-
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE and player.jump_count < 2:
                     player.jump()
 
         player.loop(FPS)
-        fire.loop()
+        level.update()
         handle_move(player, objects)
-        draw(window, background, bg_image, player, objects, offset_x, offset_y)
 
-        if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or (
-                (player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
+        # Draw entire level + player
+        window.fill((0, 0, 0))
+        level.draw(window, offset_x, offset_y)
+        player.draw(window, offset_x, offset_y)
+        pygame.display.update()
+
+        # Horizontal scrolling
+        if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or \
+           ((player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
             offset_x += player.x_vel
-            
-        if ((player.rect.bottom - offset_y >= HEIGHT - scroll_area_height) and player.y_vel > 0) or (
-                (player.rect.top - offset_y <= scroll_area_height) and player.y_vel < 0):
+
+        # Vertical scrolling
+        if ((player.rect.bottom - offset_y >= HEIGHT - scroll_area_height) and player.y_vel > 0) or \
+           ((player.rect.top - offset_y <= scroll_area_height) and player.y_vel < 0):
             offset_y += player.y_vel
 
     pygame.quit()
