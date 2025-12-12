@@ -3,36 +3,32 @@ import random
 import math
 import pygame
 from os import listdir
-from os.path import isfile, join
-
-import os
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+from os.path import isfile, join, abspath, dirname
 
 pygame.init()
-
-
 pygame.display.set_caption("Platformer")
 
 WIDTH, HEIGHT = 1000, 800
 FPS = 60
 PLAYER_VEL = 5
-
 window = pygame.display.set_mode((WIDTH, HEIGHT))
 
+# Get the absolute path of the directory where this script is located
+BASE_DIR = dirname(abspath(__file__))
 
 def flip(sprites):
     return [pygame.transform.flip(sprite, True, False) for sprite in sprites]
 
-
 def load_sprite_sheets(dir1, dir2, width, height, direction=False):
-    path = join("assets", dir1, dir2)
+    path = join(BASE_DIR, "assets", dir1, dir2)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Cannot find asset folder: {path}")
+    
     images = [f for f in listdir(path) if isfile(join(path, f))]
-
     all_sprites = {}
 
     for image in images:
         sprite_sheet = pygame.image.load(join(path, image)).convert_alpha()
-
         sprites = []
         for i in range(sprite_sheet.get_width() // width):
             surface = pygame.Surface((width, height), pygame.SRCALPHA, 32)
@@ -48,16 +44,17 @@ def load_sprite_sheets(dir1, dir2, width, height, direction=False):
 
     return all_sprites
 
-
 def get_block(size):
-    path = join("assets", "Terrain", "Terrain.png")
+    path = join(BASE_DIR, "assets", "Terrain", "Terrain.png")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Cannot find terrain file: {path}")
     image = pygame.image.load(path).convert_alpha()
     surface = pygame.Surface((size, size), pygame.SRCALPHA, 32)
     rect = pygame.Rect(96, 0, size, size)
     surface.blit(image, (0, 0), rect)
     return pygame.transform.scale2x(surface)
 
-
+# -------------------- Player Class --------------------
 class Player(pygame.sprite.Sprite):
     COLOR = (255, 0, 0)
     GRAVITY = 1
@@ -76,6 +73,7 @@ class Player(pygame.sprite.Sprite):
         self.jump_count = 0
         self.hit = False
         self.hit_count = 0
+        self.score = 0  # added score for mangoes
 
     def jump(self):
         self.y_vel = -self.GRAVITY * 8
@@ -141,8 +139,7 @@ class Player(pygame.sprite.Sprite):
 
         sprite_sheet_name = sprite_sheet + "_" + self.direction
         sprites = self.SPRITES[sprite_sheet_name]
-        sprite_index = (self.animation_count //
-                        self.ANIMATION_DELAY) % len(sprites)
+        sprite_index = (self.animation_count // self.ANIMATION_DELAY) % len(sprites)
         self.sprite = sprites[sprite_index]
         self.animation_count += 1
         self.update()
@@ -151,10 +148,10 @@ class Player(pygame.sprite.Sprite):
         self.rect = self.sprite.get_rect(topleft=(self.rect.x, self.rect.y))
         self.mask = pygame.mask.from_surface(self.sprite)
 
-    def draw(self, win, offset_x, offset_y):
-        win.blit(self.sprite, (self.rect.x - offset_x, self.rect.y - offset_y))
+    def draw(self, win, offset_x):
+        win.blit(self.sprite, (self.rect.x - offset_x, self.rect.y))
 
-
+# -------------------- Object Classes --------------------
 class Object(pygame.sprite.Sprite):
     def __init__(self, x, y, width, height, name=None):
         super().__init__()
@@ -164,8 +161,8 @@ class Object(pygame.sprite.Sprite):
         self.height = height
         self.name = name
 
-    def draw(self, win, offset_x, offset_y):
-        win.blit(self.image, (self.rect.x - offset_x, self.rect.y - offset_y))
+    def draw(self, win, offset_x):
+        win.blit(self.image, (self.rect.x - offset_x, self.rect.y))
 
 
 class Block(Object):
@@ -175,10 +172,42 @@ class Block(Object):
         self.image.blit(block, (0, 0))
         self.mask = pygame.mask.from_surface(self.image)
 
+    def update(self):
+        pass
+
+    def collide(self, player):
+        return pygame.sprite.collide_mask(self, player)
+
+    def destroy(self):
+        self.image.fill((0, 0, 0, 0))
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def highlight(self, color=(0, 255, 0)):
+        pygame.draw.rect(self.image, color, self.image.get_rect(), 2)
+
+    def get_position(self):
+        return self.rect.topleft
+
+    def resize(self, new_size):
+        self.rect.width = new_size
+        self.rect.height = new_size
+        block = get_block(new_size)
+        self.image = pygame.Surface((new_size, new_size), pygame.SRCALPHA)
+        self.image.blit(block, (0, 0))
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def move(self, x, y):
+        self.rect.x = x
+        self.rect.y = y
+
+    def is_above(self, player):
+        return (player.rect.bottom <= self.rect.top and
+                player.rect.right > self.rect.left and
+                player.rect.left < self.rect.right)
+
 
 class Fire(Object):
     ANIMATION_DELAY = 3
-
     def __init__(self, x, y, width, height):
         super().__init__(x, y, width, height, "fire")
         self.fire = load_sprite_sheets("Traps", "Fire", width, height)
@@ -195,20 +224,54 @@ class Fire(Object):
 
     def loop(self):
         sprites = self.fire[self.animation_name]
-        sprite_index = (self.animation_count //
-                        self.ANIMATION_DELAY) % len(sprites)
+        sprite_index = (self.animation_count // self.ANIMATION_DELAY) % len(sprites)
         self.image = sprites[sprite_index]
         self.animation_count += 1
-
         self.rect = self.image.get_rect(topleft=(self.rect.x, self.rect.y))
         self.mask = pygame.mask.from_surface(self.image)
-
-        if self.animation_count // self.ANIMATION_DELAY > len(sprites):
+        if self.animation_count // self.ANIMATION_DELAY >= len(sprites):
             self.animation_count = 0
 
+    def toggle(self):
+        if self.animation_name == "on":
+            self.off()
+        else:
+            self.on()
 
+    def damage(self, player):
+        if self.animation_name == "on" and pygame.sprite.collide_mask(self, player):
+            player.make_hit()
+
+    def reset_animation(self):
+        self.animation_count = 0
+
+    def get_position(self):
+        return self.rect.topleft
+
+    def set_size(self, width, height):
+        self.rect.width = width
+        self.rect.height = height
+        self.fire = load_sprite_sheets("Traps", "Fire", width, height)
+        self.image = self.fire[self.animation_name][0]
+        self.mask = pygame.mask.from_surface(self.image)
+
+# -------------------- Mango Class --------------------
+class Mango(Object):
+    def __init__(self, x, y, width, height):
+        super().__init__(x, y, width, height, "mango")
+        path = join(BASE_DIR, "assets", "Items", "Fruits", "mango.png")
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Cannot find mango: {path}")
+        self.image = pygame.image.load(path).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (width, height))
+        self.mask = pygame.mask.from_surface(self.image)
+
+# -------------------- Background --------------------
 def get_background(name):
-    image = pygame.image.load(join("assets", "Background", name))
+    path = join(BASE_DIR, "assets", "Background", name)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Cannot find background: {path}")
+    image = pygame.image.load(path)
     _, _, width, height = image.get_rect()
     tiles = []
 
@@ -219,21 +282,14 @@ def get_background(name):
 
     return tiles, image
 
-
-def draw(window, background, bg_image, player, objects, offset_x, offset_y):
-    
-    window.fill((0, 0, 0))  
-    
+# -------------------- Game Loop Helpers --------------------
+def draw(window, background, bg_image, player, objects, offset_x):
     for tile in background:
-        window.blit(bg_image, (tile[0] - offset_x, tile[1] - offset_y))
-
+        window.blit(bg_image, tile)
     for obj in objects:
-        obj.draw(window, offset_x, offset_y)
-
-    player.draw(window, offset_x, offset_y)
-
+        obj.draw(window, offset_x)
+    player.draw(window, offset_x)
     pygame.display.update()
-
 
 def handle_vertical_collision(player, objects, dy):
     collided_objects = []
@@ -245,11 +301,8 @@ def handle_vertical_collision(player, objects, dy):
             elif dy < 0:
                 player.rect.top = obj.rect.bottom
                 player.hit_head()
-
             collided_objects.append(obj)
-
     return collided_objects
-
 
 def collide(player, objects, dx):
     player.move(dx, 0)
@@ -259,15 +312,12 @@ def collide(player, objects, dx):
         if pygame.sprite.collide_mask(player, obj):
             collided_object = obj
             break
-
     player.move(-dx, 0)
     player.update()
     return collided_object
 
-
 def handle_move(player, objects):
     keys = pygame.key.get_pressed()
-
     player.x_vel = 0
     collide_left = collide(player, objects, -PLAYER_VEL * 2)
     collide_right = collide(player, objects, PLAYER_VEL * 2)
@@ -279,18 +329,52 @@ def handle_move(player, objects):
 
     vertical_collide = handle_vertical_collision(player, objects, player.y_vel)
     to_check = [collide_left, collide_right, *vertical_collide]
-
     for obj in to_check:
-        if obj and obj.name == "fire":
-            player.make_hit()
+        if obj:
+            if obj.name == "fire":
+                player.make_hit()
+            elif obj.name == "mango":
+                objects.remove(obj)
+                player.score += 1
+                print(f"Mango collected! Score: {player.score}")
 
+# -------------------- Start Screen --------------------
+def start_screen(window):
+    run = True
+    font = pygame.font.SysFont("comicsans", 60)
+    small_font = pygame.font.SysFont("comicsans", 40)
 
+    # Load mango background
+    background, bg_image = get_background("Blue.png")  # or any mango-decorated image
+
+    while run:
+        for tile in background:
+            window.blit(bg_image, tile)
+
+        title_text = font.render("Welcome to Mango Masters!", True, (255, 255, 0))
+        start_text = small_font.render("Press SPACE to start", True, (255, 255, 255))
+        
+        window.blit(title_text, (WIDTH//2 - title_text.get_width()//2, HEIGHT//3))
+        window.blit(start_text, (WIDTH//2 - start_text.get_width()//2, HEIGHT//2))
+        
+        pygame.display.update()
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    run = False
+
+# -------------------- Main Game --------------------
 def main(window):
+    start_screen(window)  # <-- added start screen here
+
     clock = pygame.time.Clock()
     background, bg_image = get_background("Blue.png")
 
     block_size = 96
-
     player = Player(100, 100, 50, 50)
     fire = Fire(100, HEIGHT - block_size - 64, 16, 32)
     fire.on()
@@ -299,22 +383,23 @@ def main(window):
     objects = [*floor, Block(0, HEIGHT - block_size * 2, block_size),
                Block(block_size * 3, HEIGHT - block_size * 4, block_size), fire]
 
+    # Add some mangoes
+    mango1 = Mango(250, HEIGHT - block_size - 50, 70, 70)
+    mango2 = Mango(500, HEIGHT - block_size - 100, 70, 70)
+    mango3 = Mango(800, HEIGHT - block_size - 150, 70, 70)
+    mango4 = Mango(1200, HEIGHT - block_size - 80, 70, 70)
+    objects.extend([mango1, mango2, mango3, mango4])
+
     offset_x = 0
     scroll_area_width = 200
-    
-    offset_y = 0
-    scroll_area_height = 200  # similar to scroll_area_width
-
 
     run = True
     while run:
         clock.tick(FPS)
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
                 break
-
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE and player.jump_count < 2:
                     player.jump()
@@ -322,19 +407,14 @@ def main(window):
         player.loop(FPS)
         fire.loop()
         handle_move(player, objects)
-        draw(window, background, bg_image, player, objects, offset_x, offset_y)
+        draw(window, background, bg_image, player, objects, offset_x)
 
-        if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or (
-                (player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
+        if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or \
+           ((player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
             offset_x += player.x_vel
-            
-        if ((player.rect.bottom - offset_y >= HEIGHT - scroll_area_height) and player.y_vel > 0) or (
-                (player.rect.top - offset_y <= scroll_area_height) and player.y_vel < 0):
-            offset_y += player.y_vel
 
     pygame.quit()
     quit()
-
 
 if __name__ == "__main__":
     main(window)
