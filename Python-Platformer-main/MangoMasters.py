@@ -652,32 +652,93 @@ def start_screen(window):
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     run = False
+# -------------------- Win Screen --------------------
+def win_screen(window):
+    """
+    Display the win screen when all mangoes are collected.
+    """
+    run = True
+    font = pygame.font.SysFont("comicsans", 70)
+    small_font = pygame.font.SysFont("comicsans", 40)
+
+    while run:
+        window.fill((255, 220, 0))  
+
+        win_text = font.render("YOU WIN!", True, (0, 0, 0))
+        msg_text = small_font.render("All mangoes collected!", True, (0, 0, 0))
+        exit_text = small_font.render("Press ESC to quit", True, (0, 0, 0))
+
+        window.blit(win_text, (WIDTH // 2 - win_text.get_width() // 2, HEIGHT // 3))
+        window.blit(msg_text, (WIDTH // 2 - msg_text.get_width() // 2, HEIGHT // 2))
+        window.blit(exit_text, (WIDTH // 2 - exit_text.get_width() // 2, HEIGHT // 1.5))
+
+        pygame.display.update()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                quit()
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    pygame.quit()
+                    quit()
+
 
 # -------------------- Main Game --------------------
 def main(window):
     """
     Initialize the game objects and run the main game loop.
     """
-    start_screen(window)  # <-- added start screen here
+    start_screen(window)
 
     clock = pygame.time.Clock()
     background, bg_image = get_background("Blue.png")
 
     block_size = 96
-    player = Player(100, 100, 50, 50)
-    fire = Fire(100, HEIGHT - block_size - 64, 16, 32)
-    fire.on()
-    floor = [Block(i * block_size, HEIGHT - block_size, block_size)
-             for i in range(-WIDTH // block_size, (WIDTH * 2) // block_size)]
-    objects = [*floor, Block(0, HEIGHT - block_size * 2, block_size),
-               Block(block_size * 3, HEIGHT - block_size * 4, block_size), fire]
 
-    # Add some mangoes
-    mango1 = Mango(250, HEIGHT - block_size - 50, 70, 70)
-    mango2 = Mango(500, HEIGHT - block_size - 100, 70, 70)
-    mango3 = Mango(800, HEIGHT - block_size - 150, 70, 70)
-    mango4 = Mango(1200, HEIGHT - block_size - 80, 70, 70)
-    objects.extend([mango1, mango2, mango3, mango4])
+    # Player
+    player = Player(100, HEIGHT - block_size * 2, 50, 50)
+
+    # Fire trap
+    fire = Fire(1400, HEIGHT - block_size - 64, 16, 32)
+    fire.on()
+
+    floor = [
+        Block(i * block_size, HEIGHT - block_size, block_size)
+        for i in range(-5, 40)
+    ]
+
+    # -------------------- PLATFORMS --------------------
+    platforms = [
+        Block(200, HEIGHT - block_size * 2, block_size),
+        Block(350, HEIGHT - block_size * 3, block_size),
+
+        Block(500, HEIGHT - block_size * 4, block_size),
+        Block(600, HEIGHT - block_size * 4, block_size),
+        Block(700, HEIGHT - block_size * 4, block_size),
+
+        Block(900, HEIGHT - block_size * 3, block_size),
+    ]
+
+    # -------------------- MANGOES --------------------
+    mangoes = [
+        Mango(520, HEIGHT - block_size * 4 - 60, 50, 50),
+        Mango(620, HEIGHT - block_size * 4 - 60, 50, 50),
+        Mango(720, HEIGHT - block_size * 4 - 60, 50, 50),
+
+        Mango(360, HEIGHT - block_size * 3 - 60, 50, 50),
+        Mango(920, HEIGHT - block_size * 3 - 60, 50, 50),
+
+        Mango(600, HEIGHT - block_size - 60, 50, 50),
+        Mango(1100, HEIGHT - block_size - 60, 50, 50),
+    ]
+
+    objects = [
+        *floor,
+        *platforms,
+        *mangoes,
+        fire
+    ]
 
     offset_x = 0
     scroll_area_width = 200
@@ -685,6 +746,7 @@ def main(window):
     run = True
     while run:
         clock.tick(FPS)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -696,14 +758,26 @@ def main(window):
         player.loop(FPS)
         fire.loop()
         handle_move(player, objects)
+
+        # -------------------- WIN CONDITION --------------------
+        remaining_mangoes = [
+            obj for obj in objects
+            if getattr(obj, "name", None) == "mango"
+        ]
+
+        if len(remaining_mangoes) == 0:
+            win_screen(window)
+
         draw(window, background, bg_image, player, objects, offset_x)
 
+        # Camera scrolling
         if ((player.rect.right - offset_x >= WIDTH - scroll_area_width) and player.x_vel > 0) or \
            ((player.rect.left - offset_x <= scroll_area_width) and player.x_vel < 0):
             offset_x += player.x_vel
 
     pygame.quit()
     quit()
+
 
 if __name__ == "__main__":
     main(window)
