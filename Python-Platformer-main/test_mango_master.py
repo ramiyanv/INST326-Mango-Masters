@@ -3,7 +3,6 @@ import sys
 import importlib
 import pytest
 
-# Prevent pygame trying to open a real window
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 
@@ -11,35 +10,35 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 def mm(monkeypatch):
     """
     Import MangoMasters from the Python-Platformer-main folder, and patch out
-    asset-heavy helpers so tests don't depend on image files.
-    """
-    # Ensure we import from the folder containing MangoMasters.py
-    THIS_DIR = os.path.dirname(__file__)  # Python-Platformer-main
+    asset he avy helpers so tests dont depend on image files.
+    """ 
+   
+    THIS_DIR = os.path.dirname(__file__) 
     if THIS_DIR not in sys.path:
         sys.path.insert(0, THIS_DIR)
 
-    # Import (or reload) module
+    
     mod = importlib.import_module("MangoMasters")
     mod = importlib.reload(mod)
 
-    # Make sure pygame is initialized in a headless-friendly way
+    
     mod.pygame.display.init()
     mod.pygame.display.set_mode((1, 1))
 
-    # --- Patch helper functions used by Block / Player / Mango ---
+    
     def solid_surface(w, h):
         surf = mod.pygame.Surface((w, h), mod.pygame.SRCALPHA)
-        surf.fill((255, 255, 255, 255))  # opaque so mask collisions work
+        surf.fill((255, 255, 255, 255)) 
         return surf
 
-    # Patch get_block so Block() doesn't load Terrain.png
+ 
     monkeypatch.setattr(mod, "get_block", lambda size: solid_surface(size * 2, size * 2))
 
-    # Patch load_sprite_sheets so Player sprites don't load PNGs
+   
     def fake_load_sprite_sheets(dir1, dir2, width, height, direction=False):
         surf = solid_surface(width * 2, height * 2)
         if direction:
-            # Player.update_sprite expects keys like "idle_left", "idle_right", etc.
+         
             return {
                 "idle_left": [surf],
                 "idle_right": [surf],
@@ -58,16 +57,16 @@ def mm(monkeypatch):
 
     monkeypatch.setattr(mod, "load_sprite_sheets", fake_load_sprite_sheets)
 
-    # ALSO override Player.SPRITES directly (it was set at import time)
+    
     mod.Player.SPRITES = fake_load_sprite_sheets("x", "y", 32, 32, True)
 
-    # Patch pygame.image.load for Mango() so it doesn't need a real mango.png
+    
     monkeypatch.setattr(mod.pygame.image, "load", lambda *args, **kwargs: solid_surface(20, 20))
 
     return mod
 
 
-# -------------------- Tests (10+ total) --------------------
+
 
 def test_flip_returns_list_of_surfaces(mm):
     s = mm.pygame.Surface((10, 10), mm.pygame.SRCALPHA)
@@ -122,9 +121,9 @@ def test_block_creation_has_mask_and_position(mm):
 
 def test_block_destroy_clears_mask_collision(mm):
     b = mm.Block(0, 0, 32)
-    # After destroy(), it should be transparent => mask mostly empty
+   
     b.destroy()
-    # mask count should be 0 or very close to 0
+
     assert b.mask.count() == 0
 
 
@@ -166,20 +165,20 @@ def test_handle_vertical_collision_lands_player_on_block(mm):
 
     block = mm.Block(0, 50, 32)
 
-    # Force overlap: put player inside block while "falling"
+    
     p.rect.x = block.rect.x
-    p.rect.y = block.rect.y - 10  # overlap a bit
-    p.update()  # rebuild mask based on sprite
+    p.rect.y = block.rect.y - 10 
+    p.update() 
 
     p.y_vel = 5
     collided = mm.handle_vertical_collision(p, [block], dy=p.y_vel)
 
     assert block in collided
-    assert p.y_vel == 0  # landed() should reset y_vel
+    assert p.y_vel == 0 
 
 
 def test_get_background_raises_filenotfound_for_missing_file(mm, monkeypatch):
-    # Force background path check to fail
+    
     monkeypatch.setattr(mm.os.path, "exists", lambda path: False)
     with pytest.raises(FileNotFoundError):
         mm.get_background("DefinitelyMissing.png")
